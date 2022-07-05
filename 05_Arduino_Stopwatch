@@ -1,0 +1,336 @@
+#include "funshield.h"
+int const button_stop_display = A2;
+int const button_start_stop = A1;
+int const button_reset = A3;
+int const time_interval_long = 5;
+int const time_interval_short = 4;
+int const but_leng = 3;
+long time = 0;
+constexpr int button_down = 0;
+constexpr int button_up = 1;
+
+struct Clock_class
+{
+    bool clock_is_on = false;
+    int const time_to_start_stop = -1;
+    int time_interval;
+    long time_to_return = 0;
+    long time_beginning = time_to_start_stop;
+
+    Clock_class(int interval)
+    { 
+      time_interval = interval;
+    }
+
+    void Initialize()
+    {
+      clock_is_on = true;
+    }
+
+    void change_state_of_clock()
+    {
+      if(clock_is_on) 
+      { 
+        clock_is_on = false; 
+        time_to_return += return_clock();        
+      }
+      else 
+      {
+        clock_is_on = true;
+        time_beginning = millis();
+      }
+    }
+
+    long return_time_in_milis()
+    {
+      long time = time_to_return;
+      if(clock_is_on)
+      {
+          long clock = return_clock();
+          time += clock;
+      }
+      return time;
+    }    
+
+    bool ready()
+    {
+      bool to_return = false;
+      if(clock_is_on)
+      {
+        long clock = return_clock();
+        if(clock >= time_interval)
+        {
+          time_to_return += clock;
+          time_beginning = millis();
+          to_return = true; 
+        }
+      }
+      return to_return;
+    }
+
+    void reset_clock()
+    {
+      clock_is_on = false;
+      time_to_return = 0;
+    }
+
+
+    long return_clock()
+    {
+      long time_from_begining = millis();
+      long clock = time_from_begining - time_beginning;
+      return clock;
+    }
+};
+Clock_class time_for_display(time_interval_short);
+Clock_class clock(time_interval_long);
+
+struct BUTTON
+{
+    int pin_b;
+    bool flag;
+    BUTTON(int pin_button)
+    {
+       pin_b = pin_button;   
+    }  
+
+    void Initialize()
+    {
+      pinMode(pin_b, INPUT);
+      flag = false;
+    }
+
+    int Read_state()
+    {           
+      int value = digitalRead(pin_b);
+      if(value == button_down) { flag = true; }
+      else {flag = false; }
+      return value;
+    }
+};
+
+struct BUTTONS
+{
+    static int const but_leng = 3;
+    int buttons[but_leng] = {button_start_stop , button_stop_display , button_reset };
+    int buttons_down_and_up[but_leng];
+    bool flags[but_leng];
+    BUTTON tlacitka[but_leng] = { BUTTON(button_start_stop), BUTTON(button_stop_display), BUTTON(button_reset) };  
+
+    void Initialize_buttons()
+    {
+      for(int i = 0; i < but_leng; i++)
+      {
+        buttons_down_and_up[i] = button_up;
+        flags[i] = false;
+        tlacitka[i].Initialize();
+      }
+    }
+   
+    void check_button_with_pin()
+    {
+      for(int index = 0; index < but_leng; index++)
+      {
+        BUTTON button = tlacitka[index];
+        int value = button.Read_state();
+        buttons_down_and_up[index] = value;
+      };
+    }
+};
+BUTTONS buttons_all;
+
+struct displayx
+{
+    bool stop_display = true;
+    static int const lenght_of_numbers = 10;
+    static int const number_list_len = 4;
+    static int const offset_for_number = 4;
+    static int const position_with_dot = 1;
+    static int const max_position_in_number_repre = 0;
+    static byte const empty_glyph = 0b11111111;
+    static byte const initial_position = 0b00001000;
+    static byte const mask_for_dot = 0b01111111;
+    static int const hundreds_index = 3;
+    static int const tens_index = 2;
+    byte list_of_glyphs[lenght_of_numbers] = { 0b11000000, 0b11111001, 0b10100100, 0b10110000,  0b10011001,  0b10010010, 0b10000010, 0b11111000, 0b10000000, 0b10010000};
+    byte position;
+    long number = 0;
+    int position_in_number_represnet;
+
+    void Initialize_display()
+    {
+      position_in_number_represnet = 0;
+      position = initial_position;
+      pinMode(latch_pin, OUTPUT);
+      pinMode(data_pin, OUTPUT);
+      pinMode(clock_pin, OUTPUT);
+    }
+  
+    void write_glyph_on_display(byte glyph, byte pos)
+    {
+      digitalWrite(latch_pin, LOW);
+      shiftOut(data_pin, clock_pin, MSBFIRST, glyph);
+      shiftOut(data_pin, clock_pin, MSBFIRST, pos);
+      digitalWrite(latch_pin, HIGH);
+    }
+
+    void change_state_of_display()
+    {
+      if(stop_display) { stop_display = false; }
+      else { stop_display = true; }
+    }
+
+    void synchronize_display_and_clock(bool clock_state)
+    {
+      if(clock_state)  { stop_display = false;}
+      else { stop_display = true;}
+    }
+
+    void reset_display()
+    {
+      stop_display = true;
+      position = initial_position;
+      position_in_number_represnet = 0;
+      number = 0;
+    }
+
+    void change_pos()
+    {
+      switch(position_in_number_represnet)
+      {
+        case(3):
+        {
+          position = initial_position;
+          position_in_number_represnet = 0;
+          break;
+        }
+        default:
+        {
+          position = position >> 1;
+          position_in_number_represnet += 1;
+          break;
+        }
+      };
+    }
+
+    int return_number_according_to_position(int pos)
+    {
+      long num_temp = number;
+      int after_modulo_ten = 1;
+      int index = 0;
+      while( index <= pos)
+      {
+        after_modulo_ten = num_temp % 10;
+        num_temp = num_temp / 10;
+        index++;
+      }
+      return after_modulo_ten;      
+    }
+
+    void main(long time)
+    {
+      if(!stop_display)
+      {
+        number = time;
+        rewrite_number_to_display_notation();
+      }
+      byte glyph = write_glyph_or_not_logic();
+      while(glyph == empty_glyph)
+      {
+        change_pos();
+        glyph = write_glyph_or_not_logic();
+      }      
+      write_glyph_on_display(glyph, position);
+      change_pos();
+    }
+
+    byte write_glyph_or_not_logic()
+    {
+      int num = return_number_according_to_position(position_in_number_represnet);
+      byte glyph_to_return = list_of_glyphs[num];
+      switch(position_in_number_represnet)
+      {
+        case(position_with_dot):
+        {
+          glyph_to_return = mask_for_dot & glyph_to_return;
+          break;
+        }
+        case(hundreds_index):
+        {
+          if(num == 0) { glyph_to_return = empty_glyph;}
+          break;
+        }
+        case(tens_index):
+        {
+          if(num == 0 && return_number_according_to_position(position_in_number_represnet + 1) == 0 ) { glyph_to_return = empty_glyph;}
+          break;
+        }
+      }
+      return glyph_to_return;
+    }
+
+    void rewrite_number_to_display_notation()
+    {
+      number = number/100;
+    }
+};
+displayx display;
+
+
+
+void setup() 
+{
+  display.Initialize_display();
+  buttons_all.Initialize_buttons();
+  time_for_display.Initialize();
+}
+
+void loop() 
+{
+  buttons_all.check_button_with_pin();
+  for(int index = 0; index < buttons_all.but_leng; index++)
+  {
+    int button = buttons_all.buttons[index];
+    bool already_pushed = buttons_all.flags[index];
+    int current_state = buttons_all.buttons_down_and_up[index];
+    if(!already_pushed && current_state == button_down)
+    {
+      buttons_all.flags[index] = true;
+      switch(button)
+      {
+        case(button_start_stop):
+        {
+          if( (display.stop_display && !clock.clock_is_on) | (!display.stop_display && clock.clock_is_on))
+          {
+            clock.change_state_of_clock();
+            display.change_state_of_display();
+          }
+          break;
+        }
+        case(button_reset):
+        {
+          if(!clock.clock_is_on)
+          {
+            clock.reset_clock();
+            display.reset_display();
+          }
+          break;
+        }
+        case(button_stop_display):
+        {
+          if(clock.clock_is_on)
+          {
+            display.change_state_of_display();
+          }
+          break;
+        }
+      };
+    }
+    else if(already_pushed && current_state == button_up) {buttons_all.flags[index] = false;}
+
+    if(clock.ready()) { time = clock.return_time_in_milis(); }
+    
+    if(time_for_display.ready()) { display.main(time); }
+  }  
+}
+
