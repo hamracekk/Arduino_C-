@@ -1,1 +1,231 @@
+#include "funshield.h"
+int number = 0;
+int const LED_ON = 1;
+int const LED_OFF = 0;
+int const max_number = 15;
+int const button_decr = A2;
+int const button_increm = A1;
+int const but_leng = 2;
+constexpr int button_down = 0;
+constexpr int button_up = 1;
+struct Clock_class
+{
+    int const time_interval_short = 300;
+    int const time_interval_long = 1000;
+    int const time_to_start_stop = -1;
+    int time_intervals[but_leng] = {time_interval_long, time_interval_long};
+    int time_beginnings[but_leng]= {time_to_start_stop, time_to_start_stop};
 
+    bool ready(int index)
+    {
+      bool to_return = false;
+      if(time_beginnings[index] == time_to_start_stop)
+      {
+        time_beginnings[index] = millis();
+      }
+      else
+      {
+        int clock = count_the_clock(time_beginnings[index]);
+        if(clock == time_intervals[index])
+        {
+          to_return = true;
+          time_beginnings[index] = time_to_start_stop;
+          time_intervals[index] = time_interval_short;
+        }
+      }
+      return to_return;
+    }
+
+    int count_the_clock(int time_start)
+    {
+      int time_from_begining = millis();
+      int clock = time_from_begining - time_start;
+      return clock;
+    }
+};
+Clock_class clock;
+
+struct LED
+{  
+    bool turned_ON;
+    int pin;
+
+    LED(int LED_pin)
+    {
+      pin = LED_pin;
+    }
+
+    void Initialize()
+    {
+      turned_ON = false;
+      pinMode(pin, OUTPUT);
+      digitalWrite(pin, HIGH);
+    }
+
+    void turn_ON()
+    {
+        digitalWrite(pin, LOW);
+        turned_ON = true;
+    }
+
+    void turn_OFF()
+    {
+        digitalWrite(pin, HIGH);
+        turned_ON = false;
+    }    
+};
+
+struct BUTTON
+{
+
+    int pin_b;
+    bool flag;
+    BUTTON(int pin_button)
+    {
+      pin_b = pin_button; 
+    }  
+
+    void Initialize()
+    {
+      pinMode(pin_b, INPUT);
+      flag = false; 
+    }
+
+    int Read_state()
+    {           
+      int value = digitalRead(pin_b);
+      if(value == button_down) { flag = true; }
+      else {flag = false; }
+      return value;
+    }
+};
+
+
+struct LEDS
+{
+    static int const lenght = 4;
+    LED letky[lenght] = {LED(led4_pin), LED(led3_pin), LED(led2_pin), LED(led1_pin)};
+
+    void Initialize_leds()
+    {
+      for(int i = 0; i < lenght; i++)
+      {
+        letky[i].Initialize();
+      }
+    }
+};
+
+void change_the_counter(int index, int buttons[], int but_leng)
+{
+  switch(buttons[index])
+  {
+    case( button_decr):
+    {
+      if(number > 0) { number--;}
+      else  {number = max_number;}
+      break;
+    }
+    case(button_increm):
+    {
+      if(number == max_number) { number = 0;}
+      else  {number++;}
+      break;
+    }
+  }
+}
+
+struct BUTTONS
+{
+    static int const but_leng = 2;
+    int buttons[but_leng] = {button_increm, button_decr};
+    int buttons_down_and_up[but_leng];
+    bool flags[but_leng];
+    BUTTON tlacitka[but_leng] = { BUTTON(button_increm), BUTTON(button_decr)};  
+
+    void Initialize()
+    {
+      for(int i = 0; i < but_leng; i++)
+      {
+        buttons_down_and_up[i] = button_up;
+        flags[i] = false;
+        tlacitka[i].Initialize();
+      }
+    }
+   
+    void check_button_with_pin()
+    {
+      for(int index = 0; index < but_leng; index++)
+      {
+        BUTTON button = tlacitka[index];
+        int value = button.Read_state();
+        buttons_down_and_up[index] = value;
+      };
+    }
+};
+BUTTONS buttons_all;
+LEDS all_leds;
+
+void calculate_binary_and_light_LEDS(int len)
+{
+  int LEDD[len] = {LED_OFF,LED_OFF,LED_OFF,LED_OFF};
+  int help_number = number;
+  int cycle_index = 0;
+  while(help_number > 0)
+  {
+    int bin_num = help_number % 2;
+    help_number = help_number / 2;
+    LEDD[cycle_index] = bin_num;
+    cycle_index++;
+  }
+  for(int index = 0; index < len; index++)
+  {
+    LED letka = all_leds.letky[index];
+    if(LEDD[index] == LED_OFF) {letka.turn_OFF();}
+    else  {letka.turn_ON();}    
+  }
+}
+
+void setup() 
+{
+  all_leds.Initialize_leds();
+  buttons_all.Initialize();
+}
+
+void loop() 
+{
+  buttons_all.check_button_with_pin();
+  for(int index = 0; index < buttons_all.but_leng; index++)
+  {
+    bool already_pushed = buttons_all.flags[index];
+    int current_state = buttons_all.buttons_down_and_up[index];
+    if(already_pushed)
+    {
+      if( current_state == button_up)
+      {
+        clock.time_beginnings[index] = clock.time_to_start_stop;
+        clock.time_intervals[index] = clock.time_interval_long;
+        buttons_all.flags[index] = false;
+      }
+      else
+      {
+        if(clock.ready(index))
+        {
+          change_the_counter(index, buttons_all.buttons, buttons_all.but_leng);
+          calculate_binary_and_light_LEDS(all_leds.lenght);
+          buttons_all.flags[index] = true;
+        }
+      }
+    }
+    else 
+    { 
+      if(current_state == button_down)
+      {
+        change_the_counter(index, buttons_all.buttons, buttons_all.but_leng);
+        calculate_binary_and_light_LEDS(all_leds.lenght);
+        clock.time_beginnings[index] = clock.time_to_start_stop; 
+        clock.time_intervals[index] = clock.time_interval_long;
+        buttons_all.flags[index] = true;
+      }
+    }
+  }
+} 
