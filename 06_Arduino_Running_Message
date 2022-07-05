@@ -1,0 +1,167 @@
+#include "funshield.h"
+#include "input.h"
+SerialInputHandler input;
+
+class Clock_class
+{
+  public:
+    int const time_to_start_stop = -1;
+    static constexpr unsigned int scroll_Interval = 300;
+    static constexpr unsigned int char_change_interval = 1;
+    long time_beginnings[2] = {time_to_start_stop, time_to_start_stop};
+    unsigned int intervals[2] = {scroll_Interval, char_change_interval};
+
+
+    bool ready(int index)
+    {
+      bool to_return = false;
+      if(time_beginnings[index] == time_to_start_stop)
+      {
+        time_beginnings[index] = millis();
+      }
+      else
+      {
+        long clock = return_clock(index);
+        if(clock >= intervals[index])
+        {
+          time_beginnings[index] = -1;
+          to_return = true; 
+        }
+      }
+      return to_return;
+    }
+
+
+    long return_clock(int index)
+    {
+      long time_from_begining = millis();
+      long clock = time_from_begining - time_beginnings[index];
+      return clock;
+    }
+};
+Clock_class clock_clas;
+
+class Display_logic
+{
+  private:
+    // map of letter glyphs
+    byte LETTER_GLYPH[26] = { 0b10001000, 0b10000011, 0b11000110,  0b10100001,  0b10000110,   0b10001110,  0b10000010,   0b10001001,   0b11111001,  0b11100001, 
+                                0b10000101,  0b11000111,  0b11001000,  0b10101011,   0b10100011,   0b10001100,   0b10011000,  0b10101111,  0b10010010,  0b10000111,   
+                                0b11000001, 0b11100011, 0b10000001,   0b10110110,   0b10010001,  0b10100100,  };
+    static constexpr byte EMPTY_GLYPH = 0b11111111;
+    static constexpr int display_windov = 4;
+    int position_in_number_represnet = 0;
+    byte position;
+    static byte const initial_position = 0b00001000;
+    int position_in_string; 
+    int position_in_string_actual;
+    int counter_to_end;
+    bool string_fully_read = false;
+    int str_len;
+
+  public: 
+    const char *reference;
+    bool ready_to_read;
+
+    void Initialize_display()
+    {
+      position_in_string = 0;
+      ready_to_read = true;
+      position_in_number_represnet = 0;
+      position = initial_position;
+      pinMode(latch_pin, OUTPUT);
+      pinMode(data_pin, OUTPUT);
+      pinMode(clock_pin, OUTPUT);
+    }
+
+    void initialize_string(const char *string_to_init)
+    {
+      reference = string_to_init;
+      position_in_string = 0;
+      ready_to_read = false;
+      string_fully_read = false;
+      counter_to_end = 0;
+    }
+
+    void scroll()
+    {
+      position_in_string++;
+      if(reference[position_in_string] == 0 && !string_fully_read)
+      {
+        string_fully_read = true;
+        str_len = position_in_string - 1;
+        counter_to_end = 0;
+      }
+      if(string_fully_read)
+      {
+        if(counter_to_end == 4) 
+        {
+          ready_to_read = true;
+          while(position_in_number_represnet !=0 ) { change_pos(); }
+        }
+        counter_to_end++;
+      }
+    }
+
+    void change_pos()
+    {
+      switch(position_in_number_represnet)
+      {
+        case(3):
+        {
+          position = initial_position;
+          position_in_number_represnet = 0;
+          break;
+        }
+        default:
+        {
+          position = position >> 1;
+          position_in_number_represnet += 1;
+          break;
+        }
+      };
+    }
+    
+    void displayChar(char ch, byte pos)
+    {
+      byte glyph = EMPTY_GLYPH;
+      if (isAlpha(ch)) { glyph = LETTER_GLYPH[ ch - (isUpperCase(ch) ? 'A' : 'a') ];};  
+      digitalWrite(latch_pin, LOW);
+      shiftOut(data_pin, clock_pin, MSBFIRST, glyph);
+      shiftOut(data_pin, clock_pin, MSBFIRST, pos);
+      digitalWrite(latch_pin, HIGH);
+    }
+
+    void main_function()
+    {
+      if(position_in_number_represnet <= position_in_string)
+      {
+        int index = position_in_string - position_in_number_represnet;
+        char c = reference[index];
+        if(string_fully_read && index > str_len) {c = ' '; }
+        displayChar(c,position);
+        change_pos();
+      }
+      else {change_pos();}
+    }
+};
+Display_logic display;
+
+void setup() 
+{
+  input.initialize();
+  display.Initialize_display();
+}
+
+
+void loop() 
+{
+  input.updateInLoop();
+  if(display.ready_to_read)
+  {
+    const char* string = input.getMessage();
+    display.initialize_string(string);
+  }
+  if(clock_clas.ready(1)) {display.main_function();}
+  if(clock_clas.ready(0)) {display.scroll();}
+}
