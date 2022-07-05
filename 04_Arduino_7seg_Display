@@ -1,0 +1,252 @@
+#include "funshield.h"
+int const button_decr = A2;
+int const button_increm = A1;
+int const button_change = A3;
+int const but_leng = 3;
+constexpr int button_down = 0;
+constexpr int button_up = 1;
+
+struct Clock_class
+{
+    int const static len = 3;
+    int const time_interval_debounce = 5;
+    int const time_to_start_stop = -1;
+    int const time_to_not_tick = -2;
+    int time_interval = time_interval_debounce;
+    int time_beginnings[len] = {time_to_start_stop, time_to_start_stop, time_to_start_stop};
+
+    bool ready(int index)
+    {
+      bool to_return = false;
+      if(time_beginnings[index] == time_to_start_stop)
+      {
+        time_beginnings[index] = millis();
+      }
+      else if(time_beginnings[index] == time_to_not_tick) 
+      {
+        to_return = false;
+      }
+      else
+      {
+        int clock = count_the_clock(time_beginnings[index]);
+        if(clock >= time_interval)
+        {
+          to_return = true;
+          time_beginnings[index] = time_to_not_tick;
+        }
+      }
+      return to_return;
+    }
+
+    void reset_timer(int index)
+    {
+      time_beginnings[index]= time_to_start_stop;
+    }
+
+    int count_the_clock(int time_start)
+    {
+      int time_from_begining = millis();
+      int clock = time_from_begining - time_start;
+      return clock;
+    }
+};
+Clock_class clock;
+
+struct BUTTON
+{
+    int pin_b;
+    bool flag;
+    BUTTON(int pin_button)
+    {
+       pin_b = pin_button;   
+    }  
+
+    void Initialize()
+    {
+      pinMode(pin_b, INPUT);
+      flag = false;
+    }
+
+    int Read_state()
+    {           
+      int value = digitalRead(pin_b);
+      if(value == button_down) { flag = true; }
+      else {flag = false; }
+      return value;
+    }
+};
+
+struct BUTTONS
+{
+    static int const but_leng = 3;
+    int buttons[but_leng] = {button_increm, button_decr, button_change };
+    int buttons_down_and_up[but_leng];
+    bool flags[but_leng];
+    bool flag_in_first_case[but_leng];
+    bool flag_in_second_case[but_leng];
+    BUTTON tlacitka[but_leng] = { BUTTON(button_increm), BUTTON(button_decr), BUTTON(button_change) };  
+
+    void Initialize_buttons()
+    {
+      for(int i = 0; i < but_leng; i++)
+      {
+        buttons_down_and_up[i] = button_up;
+        flags[i] = false;
+        flag_in_first_case[i] = false;
+        flag_in_second_case[i] = false;
+        tlacitka[i].Initialize();
+      }
+    }
+   
+    void check_button_with_pin()
+    {
+      for(int index = 0; index < but_leng; index++)
+      {
+        BUTTON button = tlacitka[index];
+        int value = button.Read_state();
+        buttons_down_and_up[index] = value;
+      };
+    }
+};
+BUTTONS buttons_all;
+
+struct displayx
+{
+    static int const lenght_of_numbers = 10;
+    static int const number_list_len = 4;
+    static int const offset_for_number = 4;
+    int const moduler_number = 10000;
+    byte const initial_position = 0b00001000;
+    byte list_of_glyphs[lenght_of_numbers] = { 0b11000000, 0b11111001, 0b10100100, 0b10110000,  0b10011001,  0b10010010, 0b10000010, 0b11111000, 0b10000000, 0b10010000};
+    byte position;
+    int number = 0;
+    int position_in_number_represnet;
+
+    void Initialize_display()
+    {
+      position_in_number_represnet = 0;
+      position = initial_position;
+      pinMode(latch_pin, OUTPUT);
+      pinMode(data_pin, OUTPUT);
+      pinMode(clock_pin, OUTPUT);
+      write_glyph_on_display(0b11000000, initial_position);   
+    }
+  
+    void write_glyph_on_display(byte glyph, byte pos)
+    {
+      digitalWrite(latch_pin, LOW);
+      shiftOut(data_pin, clock_pin, MSBFIRST, glyph);
+      shiftOut(data_pin, clock_pin, MSBFIRST, pos);
+      digitalWrite(latch_pin, HIGH);
+    }
+
+    void change_pos()
+    {
+      switch(position_in_number_represnet)
+      {
+        case(3):
+        {
+          position = initial_position;
+          position_in_number_represnet = 0;
+          break;
+        }
+        default:
+        {
+          position = position >> 1;
+          position_in_number_represnet += 1;
+          break;
+        }
+      };
+    }
+
+    int return_incr_decr()
+    {
+      int inc_decr = 1;
+      int pos = 0;
+      while(pos < position_in_number_represnet)
+      {
+        inc_decr *= 10;
+        pos ++;
+      }
+      return inc_decr;
+    }
+
+    int return_number_according_to_position()
+    {
+      int num_temp = number;
+      int after_modulo_ten = 1;
+      int index = 0;
+      while( index <= position_in_number_represnet)
+      {
+        after_modulo_ten = num_temp % 10;
+        num_temp = num_temp / 10;
+        index++;
+      }
+      return after_modulo_ten;      
+    }
+
+    void buttons_logic(int button)
+    {
+      int incr_decr = return_incr_decr();
+      switch(button)
+      {
+        case(button_increm):
+        {
+          number += incr_decr;
+          if( number >= moduler_number) {number %= moduler_number;}
+          break;
+        }
+        case(button_decr):
+        {
+          number -= incr_decr;
+          if(number < 0) {number = moduler_number + number; }
+          break;
+        }
+        case(button_change):
+        {
+          change_pos();
+          break;
+        }
+      }
+      int num = return_number_according_to_position();
+      byte glyph = list_of_glyphs[num];
+      write_glyph_on_display(glyph, position);
+    }
+};
+displayx display;
+
+
+
+void setup() 
+{
+  display.Initialize_display();
+  buttons_all.Initialize_buttons();
+}
+
+void loop() 
+{
+  buttons_all.check_button_with_pin();
+  for(int index = 0; index < buttons_all.but_leng; index++)
+  {
+    int button = buttons_all.buttons[index];
+    bool already_pushed = buttons_all.flags[index];
+    int current_state = buttons_all.buttons_down_and_up[index];
+    if(already_pushed) 
+    {
+      if(clock.ready(index)) {display.buttons_logic(button);}
+      if(current_state == button_up )
+      { 
+        buttons_all.flags[index] = false; 
+      }
+    }
+    else
+    {
+      if (current_state == button_down)
+      {
+        clock.reset_timer(index);
+        buttons_all.flags[index] = true;
+      }
+    }
+  }
+}
+
