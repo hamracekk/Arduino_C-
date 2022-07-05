@@ -1,0 +1,495 @@
+#include "funshield.h"
+enum Button_state { Down = 0,
+                    Up = 1 };  // enum class for button states
+enum Button_names { Normal_mode_button = A1,
+                    Config_button_throws_increment = A2,
+                    Config_button_type_of_dice = A3 };
+enum Type_of_change{ Throw_number = 0, 
+                     Dice_type = 1};
+enum Mode_of_display{ Config_mode,
+                      Normal_mode};
+long time_debounce = 20; // debouncing time for buttons
+long time_for_disp = 2; // frequecy of displaying 
+long time_window_for_generation = 50; //time window for number changing on display during generation (50 ms between two generations)
+
+struct BUTTON {
+  Button_names pin_b;
+  bool flag;
+  BUTTON(Button_names pin_button) {
+    pin_b = pin_button;
+  }
+
+  void Initialize() {
+    pinMode((int)pin_b, INPUT);
+    flag = false;
+  }
+
+  Button_state Read_state() {
+    Button_state value = (Button_state)digitalRead(pin_b);
+    if (value == Button_state::Down) {
+      flag = true;
+    } else {
+      flag = false;
+    }
+    return value;
+  }
+};
+
+struct BUTTONS {
+  static int const but_leng = 3;
+  Button_state buttons_down_and_up[but_leng];
+  Button_state flags[but_leng];
+  BUTTON tlacitka[but_leng] = { BUTTON(Button_names::Normal_mode_button), 
+                                BUTTON(Button_names::Config_button_throws_increment), 
+                                BUTTON(Button_names::Config_button_type_of_dice) };
+
+  void Initialize_buttons() {
+    for (int i = 0; i < but_leng; i++) {
+      buttons_down_and_up[i] = Button_state::Up;
+      flags[i] = Button_state::Up;
+      tlacitka[i].Initialize();
+    }
+  }
+
+  void check_button_with_pin() // checking current state of all buttons
+  {
+    for (int index = 0; index < but_leng; index++) {
+      BUTTON button = tlacitka[index];
+      Button_state value = button.Read_state();
+      buttons_down_and_up[index] = value;
+    };
+  }
+};
+BUTTONS buttons_all;
+
+struct LED
+{  
+    bool turned_ON;
+    int pin;
+
+    LED(int LED_pin)
+      { pin = LED_pin; }
+
+    void Initialize()
+    {
+      turned_ON = false;
+      pinMode(pin, OUTPUT);
+      digitalWrite(pin, HIGH);
+    }
+
+    void turn_ON()
+    {
+        digitalWrite(pin, LOW);
+        turned_ON = true;
+    }
+
+    void turn_OFF()
+    {
+        digitalWrite(pin, HIGH);
+        turned_ON = false;
+    }    
+};
+
+struct LEDS
+{
+    static int const lenght = 4; // lenght of LEDS
+    LED LEDSS[lenght] = {LED(led4_pin), LED(led3_pin), LED(led2_pin), LED(led1_pin)};
+
+    void Initialize_leds()
+    {
+      for(int i = 0; i < lenght; i++)
+      {
+        LEDSS[i].Initialize();
+      }
+    }
+
+    void Turn_On_Off_according_num(int min_number, int max_number, int gene_number)
+    {
+      // turning on/off LEDS according where the number on the interval (min,max) is
+      int segment_size = (max_number - min_number) / lenght; // Total number of segment is 4 (4 leds), so we want lenght of segment off integer numbers for one LED
+      while( (segment_size * lenght) < (max_number - min_number) ) // this is becuase of int character of segment lenght
+        segment_size++; // we do not want to segment be shorter ten it needs to be
+      int number_between_one_four = (gene_number - min_number) / segment_size;
+      int led_to_turn_on = number_between_one_four;
+      for(int i = 0; i < lenght; i++ )// turning on and off LEDS according generated number
+      {
+        if(i == led_to_turn_on)
+          LEDSS[i].turn_ON();
+        else
+          LEDSS[i].turn_OFF();
+      }
+    }
+};
+LEDS Letky;
+
+class Clock_display
+{
+  protected:
+    int const time_to_start_stop = -1;
+    int const time_to_not_tick = -2;
+    long begin_time = time_to_start_stop;
+    int time_interval;
+  
+  public:
+    Clock_display(int interval)
+      { time_interval = interval;}
+    
+    int count_the_clock(int time_start)
+    {
+      int time_from_begining = millis();
+      int clock = time_from_begining - time_start;
+      return clock;
+    }
+
+    bool ready() // is ready to take action ?
+    {
+      bool to_return = false;
+      if(begin_time == time_to_start_stop)
+      {
+        begin_time = millis();
+      }
+      else
+      {
+        int clock = count_the_clock(begin_time);
+        if(clock >= time_interval)
+        {
+          to_return = true;
+          begin_time = time_to_start_stop;
+        }
+      }
+      return to_return;
+    }
+};
+Clock_display clock_for_display(time_for_disp);
+
+class Clock_buttons : public Clock_display
+{
+  private:
+    int static const len = 3;
+    int time_beginnings[len] = {time_to_start_stop, time_to_start_stop, time_to_start_stop};
+
+    public:
+      Clock_buttons(int interval):Clock_display(interval)
+      {}
+
+      bool ready(int index)
+      {
+        bool to_return = false;
+        if(time_beginnings[index] == time_to_start_stop)
+        {
+          time_beginnings[index] = millis();
+        }
+        else if(time_beginnings[index] == time_to_not_tick) 
+        {
+          to_return = false;
+        }
+        else
+        {
+          int clock = count_the_clock(time_beginnings[index]);
+          if(clock >= time_interval)
+          {
+            to_return = true;
+            time_beginnings[index] = time_to_not_tick;
+          }
+        }
+        return to_return;
+      }
+
+      void reset_timer(int index)
+      {
+        time_beginnings[index]= time_to_start_stop;
+      }
+};
+Clock_buttons clock_for_buttons(time_debounce);
+
+
+class Generator : public Clock_display
+{
+    private:
+      int moduler = 4;
+      int dice_throws = 1;
+      long time_of_generation;
+      long previous_seed = 1;
+      int generated_num;
+
+    public:
+      bool Is_on = false;
+
+    explicit Generator(int interval): Clock_display(interval) {}
+
+    int generate_number(long time) // something like linear congruential generator (wihout increment constant)
+    {
+      long seed = time*previous_seed;
+      int mod = moduler*dice_throws + 1;      
+      int result = ((seed % mod) + dice_throws);
+      previous_seed = result;
+      if(result > moduler*dice_throws) // number is greater then needed
+        result -= dice_throws;
+      return result;
+    }
+
+    void Turn_On_Off(bool turn_on)
+    {
+      if(turn_on) 
+      { 
+        Is_on = true; // normal mode is on
+        time_of_generation = millis();  // recording time window     
+        previous_seed = 1;   // resetting the seed
+      }
+      else 
+      {
+        Is_on = false;
+      }
+    }
+
+    void Set_Dice(int dice, int throws) // setting the parameters for the generation
+    { 
+      dice_throws = throws;
+      moduler = dice; 
+      generated_num = dice_throws; // default value without generationm
+    }
+
+    int Return_Random() // returning random number
+    {
+      Random(); // we generate random number but it does not have to be ready to be displyed (so we return previous one)
+      return generated_num; 
+    }
+
+    void Random() // function which returns random number
+    {
+      long time_windov = count_the_clock(time_of_generation);
+      int output = generate_number(time_windov);
+      if(ready()) // Random generation and LED turning ON/OFF after every 50ms
+      {
+        Letky.Turn_On_Off_according_num(dice_throws, dice_throws * moduler , output);
+        generated_num = output;
+      }     
+    } 
+};
+Generator Num_generator(time_window_for_generation);
+
+class Display_logic
+{
+  private:
+    byte D_glyph = 0b10100001; // D-glyph
+    static constexpr byte EMPTY_GLYPH = 0b11111111; // empty glyph
+    static int const lenght_of_numbers = 10;
+    byte list_of_numbers[lenght_of_numbers] = { 0b11000000, 0b11111001, 0b10100100, 
+                                                0b10110000,  0b10011001,  0b10010010, 
+                                                0b10000010, 0b11111000, 0b10000000, 0b10010000}; // number glyphs
+    static constexpr int display_windov = 4;                                           
+    int position_on_display = 0; // current position of writing
+    byte Byte_position_on_display;
+    static byte const initial_position = 0b00001000;
+    //limits for throws and dice_types
+    int const max_number_of_throws = 10;
+    int const min_number_of_throws = 1;
+    int const max_dice_type = 101;
+    int const min_dice_type = 4;
+    Mode_of_display Current_mode;
+    Mode_of_display Previous_mode;
+
+  public: 
+    int number_of_throws = 1;
+    int dice_type = 4;
+    int Generated_number;
+
+    void Initialize_display()
+    {
+      Previous_mode = Mode_of_display::Config_mode;
+      Current_mode = Mode_of_display::Config_mode;
+      number_of_throws = 1;
+      dice_type = 4;
+      position_on_display = 0;
+      Num_generator.Set_Dice(dice_type, number_of_throws);
+      Byte_position_on_display = initial_position;
+      pinMode(latch_pin, OUTPUT);
+      pinMode(data_pin, OUTPUT);
+      pinMode(clock_pin, OUTPUT);
+    }
+    
+    void write_glyph_on_display(byte glyph, byte pos)
+    {
+      digitalWrite(latch_pin, LOW);
+      shiftOut(data_pin, clock_pin, MSBFIRST, glyph);
+      shiftOut(data_pin, clock_pin, MSBFIRST, pos);
+      digitalWrite(latch_pin, HIGH);
+    }
+
+    int change_number(int number_to_change, int max_number, int min_number) // helper function for incrementing dice_type and throws
+    {
+      number_to_change ++;
+      number_to_change %= max_number;
+      if(number_to_change == 0)
+        number_to_change = min_number;
+      return number_to_change;
+    }
+
+     void change_pos() // changing the position on display
+    {
+      switch(position_on_display)
+      {
+        case(3):
+        {
+          Byte_position_on_display = initial_position;
+          position_on_display = 0;
+          break;
+        }
+        default:
+        {
+          Byte_position_on_display = Byte_position_on_display >> 1;
+          position_on_display += 1;
+          break;
+        }
+      };
+    }
+
+    void Button_logic(Button_names but) // function which changes the current and previous mode accroding button
+    {
+      Previous_mode = Current_mode;
+      switch(but)
+      {
+        case(Button_names::Normal_mode_button):
+          Current_mode = Mode_of_display::Normal_mode; 
+          if(Previous_mode != Current_mode)
+          {
+            Num_generator.Set_Dice(dice_type, number_of_throws); // this is the case of normal_mode_button being pushed so we set the parameters of the generation
+            Generated_number = Num_generator.Return_Random(); // random generation
+          }
+          else if(Num_generator.Is_on && Current_mode == Previous_mode)
+            { Generated_number = Num_generator.Return_Random();}  // random generation
+        break;
+
+        case(Button_names::Config_button_throws_increment):
+          Current_mode = Mode_of_display::Config_mode;
+          number_of_throws = change_number(number_of_throws, max_number_of_throws, min_number_of_throws); // changing the number of throws
+        break;
+
+        case(Button_names::Config_button_type_of_dice):
+          Current_mode = Mode_of_display::Config_mode;
+          dice_type = change_number(dice_type, max_dice_type, min_dice_type); // changing the type of dice
+        break;
+      }
+    }
+
+    void display_according_state()
+    {
+      byte glyph_to_display = return_glyph_according_position_and_mode(); // glyph according place and mode
+      write_glyph_on_display(glyph_to_display, Byte_position_on_display); // writing glyph on screen
+      change_pos(); // changing position of writing
+    }
+
+    void reset_position(){
+      Byte_position_on_display = initial_position;
+      position_on_display = 0;
+    }
+
+    byte return_glyph_according_position_and_mode() 
+    {
+      byte glyph_at_pos = EMPTY_GLYPH;
+      switch(position_on_display)
+      {
+        case(3):
+          switch(Current_mode)
+          {
+            case(Mode_of_display::Config_mode):
+              glyph_at_pos = list_of_numbers[number_of_throws]; // the left most part of display is number of throws
+            break;
+            case(Mode_of_display::Normal_mode):
+              glyph_at_pos = EMPTY_GLYPH;
+            break;
+          }
+        break;
+        case(2):
+          switch(Current_mode)
+            {
+              case(Mode_of_display::Config_mode):            
+                glyph_at_pos = D_glyph; // the left most part of display is number of throws
+              break;
+              case(Mode_of_display::Normal_mode):
+                glyph_at_pos = (Generated_number < 100) ? EMPTY_GLYPH : list_of_numbers[Generated_number/100];
+              break;
+            }
+          break;
+        case(1):
+          switch(Current_mode)
+          {
+              case(Mode_of_display::Config_mode):  
+                glyph_at_pos = (dice_type < 10) ? list_of_numbers[dice_type] : list_of_numbers[dice_type/10];
+                if(dice_type == 100)
+                  glyph_at_pos = list_of_numbers[0];
+                break;
+              case(Mode_of_display::Normal_mode):
+                glyph_at_pos = (Generated_number < 10) ? EMPTY_GLYPH : list_of_numbers[(Generated_number%100)/10];
+                break;
+          }
+          break;
+        case(0):
+          switch(Current_mode)
+          {
+              case(Mode_of_display::Config_mode):  
+                glyph_at_pos = (dice_type < 10) ? EMPTY_GLYPH : list_of_numbers[dice_type%10];
+                break;
+              case(Mode_of_display::Normal_mode):
+                glyph_at_pos = list_of_numbers[Generated_number%10];
+                break;
+          }
+          break;
+      }
+      return glyph_at_pos;
+    }
+};
+Display_logic display;
+
+
+void setup() 
+{
+  display.Initialize_display();
+  buttons_all.Initialize_buttons();
+  Letky.Initialize_leds();
+}
+
+void loop() 
+{
+  if(clock_for_display.ready()) // displaying the dice/throws or generated number according state
+      { display.display_according_state();}
+
+  buttons_all.check_button_with_pin(); // checking the state of the buttons
+  for(int index = 0; index < buttons_all.but_leng; index++)
+  {
+    Button_names button_n = buttons_all.tlacitka[index].pin_b; // name of the current button
+    Button_state Button_previous_state = buttons_all.flags[index];  // previous state of the button (pushed or not)
+    Button_state Button_current_state = buttons_all.buttons_down_and_up[index]; // Current state of the button (pushed or not)
+
+    switch(Button_previous_state) // previous state of button
+    {
+      case(Button_state::Down):
+        if(Button_current_state == Button_state::Up && clock_for_buttons.ready(index)) // debouncing (but it is not really needed)
+        {
+          display.Button_logic(button_n); // setting up the logic of the button
+          buttons_all.flags[index] = Button_state::Up; // setting the "future previous state"
+          if(button_n == Button_names::Normal_mode_button) 
+          {
+            Letky.Initialize_leds(); // Turning off the LEDs
+            Num_generator.Turn_On_Off(false); // turning off the time of the generation
+          }
+        }
+        else if(Button_current_state == Button_state::Down && button_n == Button_names::Normal_mode_button)
+        {             
+          display.Button_logic(button_n); // setting up the logic of the button
+          buttons_all.flags[index] = Button_state::Down; // setting the "future previous state"
+        }
+      break;
+
+      case(Button_state::Up):
+        if (Button_current_state == Button_state::Down) // button is now pushed (but it was not)
+        {
+            clock_for_buttons.reset_timer(index); // resetting times for buttons
+            buttons_all.flags[index] = Button_state::Down; // settig up the falg
+            if(button_n == Button_names::Normal_mode_button) // turning on the time of the generation
+                Num_generator.Turn_On_Off(true);
+        }
+      break;
+    }     
+  }
+}
