@@ -1,8 +1,104 @@
-Napište program pro Arduino UNO s připojeným Funshieldem, který bude animovat níže popsaný vzor na čtyřech vertikálních LED diodách. 
-V každém okamžiku svítí právě jedna dioda ze 4, na počátku je to LED umístěná nejvýše. V každém kroku animace se aktivní LED posune o jedna níže. 
-Když dorazí na spodek, odrazí se a vrací se krok za krokem zpět nahoru. Nahoře se opět odrazí a celý cyklus se opakuje do nekonečna.
+#include "funshield.h"
+int const lenght = 4;
+constexpr int down = 0;
+constexpr int up = 1;
+int pins[lenght];
+bool pins_ON[lenght];
+int const offset_pin = 10;
+int const time_interval = 300;
+int const time_to_start_stop = -1;
+int const start_pin = 13;
+int time_beginning = time_interval;
+int direct = down;
 
-Jeden krok animace trvá přesně 300ms. Ve vašem řešení, ale nesmíte používat funkci delay(), ani delayMicroseconds(), ani jinak 
-blokovat hlavní smyčku. K měření uplynulého času použijte funkci millis().
+void pin_list_ON_rewrite(bool l_bool[], int lenn, int index_ON)
+{
+  if(index_ON == lenn - 1) {direct = down;}
+  else if(index_ON == 0) {direct = up;}  
+  switch(direct)
+  {
+    case(down):
+    {        
+      l_bool[index_ON] = false;
+      l_bool[index_ON-1] = true;
+      break;
+    }
+    case(up):
+    {
+      l_bool[index_ON] = false;
+      l_bool[index_ON + 1] = true;
+      break;
+    }
+  }  
+}
+
+void pin_list_On_switch(bool list_bool[], int list_int[], int len)
+{
+  int ON_index = 0;
+  for(int i = 0; i < len; i++)
+  {
+    int pin = list_int[i];
+    if(list_bool[i]==true) 
+    {
+      digitalWrite(pin, LOW);
+      ON_index = i;
+    }
+    else
+    {
+      digitalWrite(pin, HIGH);
+    }
+  }
+  pin_list_ON_rewrite(list_bool, len, ON_index);
+}
+
+int count_the_clock(int time_start)
+{
+  int time_from_begining = millis();
+  int clock = time_from_begining - time_start;
+  return clock;
+}
+
+bool ready()
+{
+  bool to_return = false;
+  if(time_beginning == time_to_start_stop)
+  {
+    time_beginning = millis();
+  }
+  else
+  {
+    int clock = count_the_clock(time_beginning);
+    if(clock == time_interval)
+    {
+      to_return = true;
+      time_beginning = time_to_start_stop;
+    }
+  }
+  return to_return;
+}
+
+void initialize_pins(int pin_list[], int lenght, int offset, int start_p)
+{
+    for(int i = 0; i < lenght; i++)
+    {
+      pinMode(i + offset, OUTPUT);
+      pin_list[i] = i + offset;
+      if (pin_list[i] == start_p) { pins_ON[i] = true; }
+      else { pins_ON[i] = false; }
+    }
+}
+
+void setup() 
+{
+  initialize_pins(pins, lenght, offset_pin, start_pin);
+}
+
+void loop() 
+{
+  if (ready())
+  {
+    pin_list_On_switch(pins_ON, pins, lenght);
+  }
+}
 
 
